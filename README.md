@@ -9,7 +9,7 @@ supporting both CPU (SciPy) and GPU (CuPy via DLPack) solvers.
 The new physical state is radiation energy `E` and material temperature `T`:
 
 $$\frac{\partial E}{\partial t}
-=\nabla\!\cdot\left(D(T)\nabla E\right)
+=\nabla\cdot\left(D(T)\nabla E\right)
 -\sigma_a(T)\left(E-aT^4\right)+Q,$$
 
 $$
@@ -70,10 +70,10 @@ Ignoring diffusion derivatives, the retained local physical Jacobian is
 
 $$
 M_i=\begin{bmatrix}
-1+\theta\Delta t\,\sigma_a &
-\theta\Delta t\,\partial_T g\\
--\theta\Delta t\,\sigma_a &
-c_v(T)-\theta\Delta t\,\partial_T g
+1+\theta\Delta t\sigma_a &
+\theta\Delta t\partial_T g\\
+-\theta\Delta t\sigma_a &
+c_v(T)-\theta\Delta t\partial_T g
 \end{bmatrix}_i,
 $$
 
