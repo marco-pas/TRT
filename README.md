@@ -1,9 +1,8 @@
 # Scale-preconditioned TRT JFNK
 
-This is an additive implementation for the upstream
-[`JFNK-ADvsFD`](https://github.com/marco-pas/JFNK-ADvsFD) repository. It leaves
-`raddiffSolver.py` intact and imports its Crank--Nicolson residual, Laplacian,
-source, initial-condition, and boundary-condition functions.
+This repository provides a modular, scale-preconditioned Jacobian-Free
+Newton--Krylov (JFNK) framework for thermal radiative transfer (TRT),
+supporting both CPU (SciPy) and GPU (CuPy via DLPack) solvers.
 
 ## Nonlinear equations
 
@@ -96,11 +95,87 @@ keeps preconditioning consistent when state and residual scales differ.
 # Stronger opacity nonlinearity and larger step
 python scripts/run_gray_trt.py --opacity-exponent 4 --sigma-a0 3 --dt 0.01
 
-# Pure device-resident AD/GMRES path
-python scripts/run_gray_trt.py --jvp ad --krylov-backend jax --platform gpu
+# Device-resident GPU AD/Krylov path via CuPy
+python scripts/run_gray_trt.py --jvp ad --krylov-backend cupy --platform gpu
 
 # Independent residual equilibration instead of R=S
 python scripts/run_gray_trt.py --scaling fixed \
   --radiation-scale 0.01 --temperature-scale 0.2 \
   --residual-radiation-scale 0.1 --residual-temperature-scale 0.02
 ```
+
+## Hypothesis Benchmarks (H1 & H4)
+
+Dedicated benchmark drivers are provided to systematically investigate the core hypotheses:
+- **Hypothesis H1 (Tangent Accuracy)**: AD directional derivatives remain exact up to machine precision, whereas finite-difference (FD) approximations suffer truncation error ($\epsilon > \sqrt{\epsilon_{\text{mach}}}$) and cancellation error ($\epsilon < \sqrt{\epsilon_{\text{mach}}}$), especially pronounced in single precision (FP32).
+- **Hypothesis H4 (Reduced Precision)**: Combining AD JVPs, dimensionless state scaling, and local-block preconditioning enables robust, convergent FP32 solutions even under stiff TRT coupling ($\epsilon = 10^{-4}$).
+
+### Running via Command Line
+
+Execute benchmarks using `scripts/run_benchmarks_su_olson.py`:
+
+```bash
+# Run both H1 and H4 on CPU with SciPy
+python scripts/run_benchmarks_su_olson.py --target all --platform cpu --krylov-backend scipy
+
+# Run only H1 (tangent accuracy across FD step sizes)
+python scripts/run_benchmarks_su_olson.py --target h1
+
+# Run H4 on GPU with CuPy (tracks exact Krylov iteration counts on device)
+python scripts/run_benchmarks_su_olson.py --target h4 --platform gpu --krylov-backend cupy --steps 20
+```
+
+#### CLI Options
+
+| Argument | Choices / Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--target` | `all`, `h1`, `h4` | `all` | Benchmark suite to execute |
+| `--platform` | `auto`, `cpu`, `gpu` | `auto` | Hardware platform for JAX |
+| `--krylov-backend` | `scipy`, `cupy`, `jax` | `scipy` | Linear solver backend (`scipy` for CPU, `cupy` for GPU) |
+| `--steps` | `int` | `20` | Number of time steps for H4 multi-step solve |
+| `--nx` | `int` | `65` | Grid points along $x$ |
+| `--ny` | `int` | `8` | Grid points along $y$ |
+| `--output-dir` | `path` | `results/benchmarks_su_olson` | Directory where benchmark CSVs are written |
+
+### Running via Python API
+
+Both benchmarks can also be driven and analyzed directly from Python:
+
+#### Testing H1 in Python (Tangent Accuracy)
+```python
+from trt_jfnk.benchmarks.benchmark_h1_tangent import run_tangent_accuracy_benchmark
+from trt_jfnk.benchmarks.configurations import SuOlsonBenchmarkConfig
+
+# Configure grid and perturbation range
+config = SuOlsonBenchmarkConfig(nx=65, ny=8)
+epsilons = [10.0**p for p in range(-12, 1)]
+
+# Evaluate AD, FD-forward, and FD-central in FP64 and FP32
+records = run_tangent_accuracy_benchmark(config=config, epsilons=epsilons)
+
+for r in records:
+    print(f"{r.scheme:12s} | prec={r.precision} | eps={r.epsilon:.1e} | rel_err={r.rel_error:.2e}")
+```
+
+#### Testing H4 in Python (Reduced Precision & Ablation)
+```python
+from trt_jfnk.benchmarks.benchmark_h4_precision import run_reduced_precision_benchmark
+
+# Run multi-step solver across coupling stiffnesses (eps = 1e-2, 1e-4)
+# Evaluates: FP64 Ref, FP32 Baseline, FP32+AD, FP32+AD+Scaling, FP32 Full H4, FP32 FD Ablation
+results = run_reduced_precision_benchmark(
+    coupling_epsilons=[1.0e-2, 1.0e-4],
+    steps=20,
+    nx=65,
+    ny=8,
+    krylov_backend="cupy",  # or "scipy" on CPU
+)
+
+for r in results:
+    status = "CONVERGED" if r.converged else "FAILED"
+    print(
+        f"{r.name:38s} | eps={r.coupling_epsilon:.0e} | {status:9s} | "
+        f"Krylov={r.total_krylov:<5d} | RelErr={r.rel_error_to_fp64_ref:.2e}"
+    )
+```
+
