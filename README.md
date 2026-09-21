@@ -1,5 +1,8 @@
 # Scale-preconditioned TRT JFNK
 
+[![TRT-JFNK CI](https://github.com/marco-pas/TRT/actions/workflows/ci.yml/badge.svg?branch=feature%2Fhlim_adjoint_opt)](https://github.com/marco-pas/TRT/actions/workflows/ci.yml)
+
+
 This repository provides a modular, scale-preconditioned Jacobian-Free
 Newton--Krylov (JFNK) framework for thermal radiative transfer (TRT),
 supporting both CPU (SciPy) and GPU (CuPy via DLPack) solvers.
