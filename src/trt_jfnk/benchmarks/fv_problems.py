@@ -2,6 +2,16 @@
 
 Separate from the original endpoint-based Grid2D: all cells have volume h_x h_y.
 Marshak incoming radiation is applied as a face flux, not a replaced PDE row.
+
+Currently, it has three different problems:
+Case	   Heating	                Outer boundaries	       Material heterogeneity
+-----------------------------------------------------------------------------------------
+marshak	   Incoming left-boundary   Driven left; reflecting    None
+           radiation	            elsewhere	
+
+hotspot	   Gaussian volume source   All reflecting	           None
+
+inclusion  Gaussian volume source	All reflecting	           Circular opacity inclusion
 """
 from dataclasses import dataclass
 import jax.numpy as jnp
@@ -11,7 +21,6 @@ from scipy.sparse.linalg import splu
 from trt_jfnk.models.opacity import PowerLawOpacity
 from trt_jfnk.models.material import PolynomialMaterial
 from trt_jfnk.discretization.diffusion import harmonic_mean
-
 
 @dataclass
 class FVProblem:
