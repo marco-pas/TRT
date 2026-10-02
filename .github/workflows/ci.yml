@@ -91,8 +91,15 @@ jobs:
             --output-dir results/ci_inclusion
       - name: One implicit-adjoint optimization iteration
         run: python scripts/run_initial_inverse.py --iterations 1 --output-dir results/ci_inverse
+      - name: Ghosh planar slab FV benchmark error verification (< 1e-3)
+        run: |
+          python scripts/run_ghosh_slab.py \
+            --nx 40 --dt 0.005 --t-final 1.0 \
+            --assert-error-threshold 1e-3 \
+            --preconditioner schur \
+            --output-dir results/ci_ghosh
       - name: Check produced benchmark records
-        run: python scripts/check_ci_results.py results/ci_gray results/ci_marshak results/ci_inclusion
+        run: python scripts/check_ci_results.py results/ci_gray results/ci_marshak results/ci_inclusion results/ci_ghosh
       - name: Upload smoke outputs
         if: always()
         uses: actions/upload-artifact@v4
@@ -139,11 +146,19 @@ jobs:
             --case inclusion --nx 16 --ny 12 --steps 3 --dt 0.001 \
             --contrast 100 --jvp fd --scaling state --preconditioner schur \
             --output-dir results/science_inclusion_fd
+      - name: Ghosh planar slab FV analytical verification regression
+        run: |
+          python scripts/run_ghosh_slab.py \
+            --nx 40 --dt 0.005 --t-final 1.0 \
+            --assert-error-threshold 1e-3 \
+            --preconditioner schur \
+            --output-dir results/science_ghosh
       - name: Validate convergence records
         run: |
           python scripts/check_ci_results.py \
             results/science_gray_ad results/science_gray_fd \
-            results/science_inclusion_ad results/science_inclusion_fd
+            results/science_inclusion_ad results/science_inclusion_fd \
+            results/science_ghosh
       - name: Upload scientific regression data
         if: always()
         uses: actions/upload-artifact@v4
