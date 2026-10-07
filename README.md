@@ -1,5 +1,8 @@
 # Scale-preconditioned TRT JFNK
 
+[![TRT-JFNK CI](https://github.com/marco-pas/TRT/actions/workflows/ci.yml/badge.svg?branch=feature%2Fhlim_adjoint_opt)](https://github.com/marco-pas/TRT/actions/workflows/ci.yml)
+
+
 This repository provides a modular, scale-preconditioned Jacobian-Free
 Newton--Krylov (JFNK) framework for thermal radiative transfer (TRT),
 supporting both CPU (SciPy) and GPU (CuPy via DLPack) solvers.
@@ -103,6 +106,51 @@ python scripts/run_gray_trt.py --scaling fixed \
   --radiation-scale 0.01 --temperature-scale 0.2 \
   --residual-radiation-scale 0.1 --residual-temperature-scale 0.02
 ```
+
+### More runs with physical benchmarks
+```
+# Nonlinear Marshak wave
+python scripts/run_fv_benchmark.py \
+  --case marshak --nx 32 --ny 4 \
+  --steps 20 --dt 0.002 \
+  --preconditioner local-block \
+  --output-dir results/marshak
+
+# Genuine two-dimensional heating
+python scripts/run_fv_benchmark.py \
+  --case hotspot --nx 32 --ny 32 \
+  --steps 20 --dt 0.002 \
+  --preconditioner schur \
+  --output-dir results/hotspot
+
+# Two-dimensional heterogeneous material
+python scripts/run_fv_benchmark.py \
+  --case inclusion --nx 32 --ny 32 \
+  --contrast 100 --steps 20 --dt 0.002 \
+  --preconditioner schur \
+  --output-dir results/inclusion
+
+# More demanding nonlinear/heterogeneous case
+python scripts/run_fv_benchmark.py \
+  --case inclusion --nx 64 --ny 64 \
+  --cold 0.05 --floor 0.005 \
+  --exponent 3 --contrast 10000 \
+  --dt 0.01 --steps 10 \
+  --preconditioner schur \
+  --output-dir results/inclusion_stiff
+```
+
+### Test the adjoint with simple inverse problem
+```
+python scripts/run_initial_inverse.py \
+  --metric identity --iterations 8 \
+  --output-dir results/inverse_identity
+
+python scripts/run_initial_inverse.py \
+  --metric diagonal --iterations 8 \
+  --output-dir results/inverse_diagonal
+```
+
 
 ## Hypothesis Benchmarks (H1 & H4)
 

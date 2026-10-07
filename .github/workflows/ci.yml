@@ -1,0 +1,153 @@
+name: TRT-JFNK CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_science:
+        description: "Run the longer AD/FD scientific-regression lane"
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # Weekly: catches changes in JAX/SciPy runners without slowing PRs.
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trt-jfnk-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep the source tree importable even if a packaging regression occurs.
+  PYTHONPATH: ${{ github.workspace }}/src
+  PYTHONUNBUFFERED: "1"
+  JAX_PLATFORM_NAME: cpu
+  JAX_ENABLE_X64: "True"
+
+jobs:
+  unit:
+    name: Unit tests (CPU, Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install package and test tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[test,plot]'
+      - name: Verify import and CPU backend
+        run: |
+          python -c "import jax, trt_jfnk; print('JAX:', jax.__version__); print('devices:', jax.devices()); print('package:', trt_jfnk.__file__)"
+      - name: Run unit and discrete-adjoint tests
+        run: |
+          mkdir -p results
+          python -m pytest -q --junitxml=results/pytest.xml
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: results/pytest.xml
+          if-no-files-found: warn
+
+  smoke:
+    name: End-to-end smoke benchmarks
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[test,plot]'
+      - name: Nonlinear gray-TRT AD/scaled/local-block smoke
+        run: |
+          python scripts/run_gray_trt.py \
+            --nx 9 --ny 3 --steps 2 --dt 0.002 \
+            --jvp ad --scaling state --preconditioner local-block \
+            --output-dir results/ci_gray
+      - name: Marshak and heterogeneous-inclusion FV smokes
+        run: |
+          python scripts/run_fv_benchmark.py \
+            --case marshak --nx 8 --ny 2 --steps 2 --dt 0.002 \
+            --jvp ad --scaling state --preconditioner local-block \
+            --output-dir results/ci_marshak
+          python scripts/run_fv_benchmark.py \
+            --case inclusion --nx 8 --ny 8 --steps 2 --dt 0.001 \
+            --jvp ad --scaling state --preconditioner local-block \
+            --output-dir results/ci_inclusion
+      - name: One implicit-adjoint optimization iteration
+        run: python scripts/run_initial_inverse.py --iterations 1 --output-dir results/ci_inverse
+      - name: Check produced benchmark records
+        run: python scripts/check_ci_results.py results/ci_gray results/ci_marshak results/ci_inclusion
+      - name: Upload smoke outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-smoke-results
+          path: results/
+          if-no-files-found: warn
+
+  science-regression:
+    name: AD/FD scientific regression (scheduled/manual)
+    needs: unit
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_science)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[test,plot]'
+      - name: AD versus FD on the same nonlinear Gray-TRT trajectory
+        run: |
+          python scripts/run_gray_trt.py \
+            --nx 17 --ny 4 --steps 4 --dt 0.002 \
+            --jvp ad --scaling state --preconditioner local-block \
+            --output-dir results/science_gray_ad
+          python scripts/run_gray_trt.py \
+            --nx 17 --ny 4 --steps 4 --dt 0.002 \
+            --jvp fd --scaling state --preconditioner local-block \
+            --output-dir results/science_gray_fd
+      - name: Heterogeneous FV AD/FD comparison
+        run: |
+          python scripts/run_fv_benchmark.py \
+            --case inclusion --nx 16 --ny 12 --steps 3 --dt 0.001 \
+            --contrast 100 --jvp ad --scaling state --preconditioner schur \
+            --output-dir results/science_inclusion_ad
+          python scripts/run_fv_benchmark.py \
+            --case inclusion --nx 16 --ny 12 --steps 3 --dt 0.001 \
+            --contrast 100 --jvp fd --scaling state --preconditioner schur \
+            --output-dir results/science_inclusion_fd
+      - name: Validate convergence records
+        run: |
+          python scripts/check_ci_results.py \
+            results/science_gray_ad results/science_gray_fd \
+            results/science_inclusion_ad results/science_inclusion_fd
+      - name: Upload scientific regression data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: science-regression-${{ github.run_id }}
+          path: results/
+          if-no-files-found: warn
