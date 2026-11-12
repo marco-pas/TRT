@@ -1,0 +1,10 @@
+jax>=0.4.30
+numpy>=1.26
+scipy>=1.12
+sympy>=1.12
+
+[plot]
+matplotlib>=3.8
+
+[test]
+pytest>=8
